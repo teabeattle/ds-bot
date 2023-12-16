@@ -3,7 +3,7 @@ import discord
 from discord.ext import commands
 from collections import deque
 import cv2
-import yt_dlp as youtube_dl
+import youtube_dl
 
 queue = deque()
 
