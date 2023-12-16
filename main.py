@@ -30,8 +30,9 @@ async def play(ctx, query, next_track=False):
         stream = yt.streams.filter(only_audio=True, audio_codec='opus').order_by('abr').desc().first().download(filename='music.webm')
         source = discord.FFmpegOpusAudio(stream)
         ctx.voice_client.play(source, after=lambda e: print(f'ERROR: {e}') if e else None)
-        await play_next_track(ctx, yt.length)
         await ctx.send(f'ИГРАЕТ {yt.title}')
+        await play_next_track(ctx, yt.length)
+        
 
 @bot.command()
 async def skip(ctx):
