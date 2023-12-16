@@ -3,6 +3,8 @@ import discord
 from discord.ext import commands
 from pytube import YouTube
 from collections import deque
+import cv2
+import pafy
 
 queue = deque()
 
@@ -26,13 +28,23 @@ async def play(ctx, query, next_track=False):
         queue.append(query)
 
     if not ctx.voice_client.is_playing() and queue:
-        yt = YouTube(queue[0])
-        stream = yt.streams.filter(only_audio=True, audio_codec='opus').order_by('abr').desc().first().download(filename='music.webm')
-        source = discord.FFmpegOpusAudio(stream)
-        ctx.voice_client.play(source, after=lambda e: print(f'ERROR: {e}') if e else None)
-        await ctx.send(f'ИГРАЕТ {yt.title}')
-        await play_next_track(ctx, yt.length)
-        
+        url = queue[0]
+        video = pafy.new(url)
+        best = video.getbest(preftype="webm")
+
+        # start the video
+        cap = cv2.VideoCapture(best.url)
+        while (True):
+            ret,frame = cap.read()
+            cv2.imshow('frame',frame)
+            if cv2.waitKey(20) & 0xFF == ord('q'):
+                break    
+
+        cap.release()
+        cv2.destroyAllWindows()
+
+        await play_next_track(ctx, video.length)
+        await ctx.send(f'ИГРАЕТ {video.title}')
 
 @bot.command()
 async def skip(ctx):
