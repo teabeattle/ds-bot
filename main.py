@@ -1,64 +1,92 @@
-import asyncio
 import discord
+import os
+# load our local env so we dont have the token in public
+from dotenv import load_dotenv
 from discord.ext import commands
-from pytube import YouTube
-from collections import deque
+from discord.utils import get
+from discord import FFmpegPCMAudio
+from discord import TextChannel
+from youtube_dl import YoutubeDL
 
-queue = deque()
+load_dotenv()
+client = commands.Bot(command_prefix='.')  # prefix our commands with '.'
 
-intents = discord.Intents.default()
-intents.members = True
-intents.message_content = True
+players = {}
 
-bot = commands.Bot(command_prefix='/', intents=intents)
 
-@bot.event
+@client.event  # check if bot is ready
 async def on_ready():
-    print(f'Logged in as {bot.user} (ID: {bot.user.id})\n------')
+    print('Bot online')
 
-async def play_next_track(ctx, delay):
-    await asyncio.sleep(delay)
-    await skip(ctx)
 
-@bot.command()
-async def play(ctx, query, next_track=False):
-    if not next_track:
-        queue.append(query)
-
-    if not ctx.voice_client.is_playing() and queue:
-        yt = YouTube(queue[0])
-        stream = yt.streams.filter(only_audio=True, audio_codec='opus').order_by('abr').desc().first().download(filename='music.webm')
-        source = discord.FFmpegOpusAudio(stream)
-        ctx.voice_client.play(source, after=lambda e: print(f'ERROR: {e}') if e else None)
-        await ctx.send(f'ИГРАЕТ {yt.title}')
-        await play_next_track(ctx, yt.length)
-        
-
-@bot.command()
-async def skip(ctx):
-    if queue:
-        queue.popleft()
-        if ctx.voice_client.is_playing():
-            ctx.voice_client.stop()
-        if queue:
-            await play(ctx, queue[0], next_track=True)
-
-@bot.command()
-async def q(ctx):
-     await ctx.send(f'ОЧЕРЕДЬ {list(queue)}')
-
-@play.before_invoke
-async def ensure_voice(ctx):
-    if ctx.voice_client is None:
-        if ctx.author.voice:
-            await ctx.author.voice.channel.connect()
-        else:
-            await ctx.send("ТЫ НЕ В ГОЛОСОВОМ КАНАЛЕ")
+# command for bot to join the channel of the user, if the bot has already joined and is in a different channel, it will move to the channel the user is in
+@client.command()
+async def join(ctx):
+    channel = ctx.message.author.voice.channel
+    voice = get(client.voice_clients, guild=ctx.guild)
+    if voice and voice.is_connected():
+        await voice.move_to(channel)
     else:
-        await ctx.voice_client.move_to(ctx.author.voice.channel)
+        voice = await channel.connect()
 
-async def main():
-    async with bot:
-        await bot.start('TOKEN')
 
-asyncio.run(main())
+# command to play sound from a youtube URL
+@client.command()
+async def play(ctx, url):
+    YDL_OPTIONS = {'format': 'bestaudio', 'noplaylist': 'True'}
+    FFMPEG_OPTIONS = {
+        'before_options': '-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5', 'options': '-vn'}
+    voice = get(client.voice_clients, guild=ctx.guild)
+
+    if not voice.is_playing():
+        with YoutubeDL(YDL_OPTIONS) as ydl:
+            info = ydl.extract_info(url, download=False)
+        URL = info['url']
+        voice.play(FFmpegPCMAudio(URL, **FFMPEG_OPTIONS))
+        voice.is_playing()
+        await ctx.send('Bot is playing')
+
+# check if the bot is already playing
+    else:
+        await ctx.send("Bot is already playing")
+        return
+
+
+# command to resume voice if it is paused
+@client.command()
+async def resume(ctx):
+    voice = get(client.voice_clients, guild=ctx.guild)
+
+    if not voice.is_playing():
+        voice.resume()
+        await ctx.send('Bot is resuming')
+
+
+# command to pause voice if it is playing
+@client.command()
+async def pause(ctx):
+    voice = get(client.voice_clients, guild=ctx.guild)
+
+    if voice.is_playing():
+        voice.pause()
+        await ctx.send('Bot has been paused')
+
+
+# command to stop voice
+@client.command()
+async def stop(ctx):
+    voice = get(client.voice_clients, guild=ctx.guild)
+
+    if voice.is_playing():
+        voice.stop()
+        await ctx.send('Stopping...')
+
+
+# command to clear channel messages
+@client.command()
+async def clear(ctx, amount=5):
+    await ctx.channel.purge(limit=amount)
+    await ctx.send("Messages have been cleared")
+
+
+client.run(os.getenv('TOKEN'))
