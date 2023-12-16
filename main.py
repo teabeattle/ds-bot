@@ -1,10 +1,9 @@
 import asyncio
 import discord
 from discord.ext import commands
-from pytube import YouTube
 from collections import deque
 import cv2
-import pafy
+import youtube_dl
 
 queue = deque()
 
@@ -29,11 +28,15 @@ async def play(ctx, query, next_track=False):
 
     if not ctx.voice_client.is_playing() and queue:
         url = queue[0]
-        video = pafy.new(url)
-        best = video.getbest(preftype="webm")
+        ydl_opts = {'format': 'best'}
+        with youtube_dl.YoutubeDL(ydl_opts) as ydl:
+            info_dict = ydl.extract_info(url, download=False)
+            video_url = info_dict.get("url", None)
+            video_id = info_dict.get("id", None)
+            video_title = info_dict.get('title', None)
 
         # start the video
-        cap = cv2.VideoCapture(best.url)
+        cap = cv2.VideoCapture(video_url)
         while (True):
             ret,frame = cap.read()
             cv2.imshow('frame',frame)
@@ -43,8 +46,8 @@ async def play(ctx, query, next_track=False):
         cap.release()
         cv2.destroyAllWindows()
 
-        await play_next_track(ctx, video.length)
-        await ctx.send(f'ИГРАЕТ {video.title}')
+        await play_next_track(ctx, info_dict['duration'])
+        await ctx.send(f'ИГРАЕТ {video_title}')
 
 @bot.command()
 async def skip(ctx):
