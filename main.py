@@ -27,13 +27,10 @@ async def play_next_track(ctx, delay):
 async def play(ctx, query, next_track = False):
     queue.append(query) if not next_track else None
     if ctx.voice_client.is_playing():
-        print(queue)
         return
         
     yt = pytube.YouTube(queue[0])
-    print(yt.title)
     stream = yt.streams.filter(only_audio=True, audio_codec='opus').order_by('abr').desc().first().download(filename='music.webm')
-    print(stream)
     
     source = discord.FFmpegOpusAudio(stream)
     ctx.voice_client.play(source, after=lambda e: print(f'ERROR: {e}') if e else None)
@@ -44,7 +41,6 @@ async def play(ctx, query, next_track = False):
 @bot.command()
 async def skip(ctx):
     queue.pop(0)
-    print(len(queue))
     if ctx.voice_client.is_playing():
         ctx.voice_client.stop()
     if len(queue):
