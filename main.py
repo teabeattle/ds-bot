@@ -23,6 +23,7 @@ async def play_next_track(ctx, delay):
 @bot.command()
 async def play(ctx, query, next_track=False):
     if not next_track:
+        await ctx.send(f'ДОБАВЛЕНО В ОЧЕРЕДЬ {YouTube(query).title}') if queue else None
         queue.append(query)
 
     if not ctx.voice_client.is_playing() and queue:
