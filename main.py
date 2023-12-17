@@ -16,7 +16,7 @@ bot = commands.Bot(command_prefix='/', intents=intents)
 async def on_ready():
     print(f'Logged in as {bot.user} (ID: {bot.user.id})\n------')
 
-async def play_next_track(ctx, delay):
+async def play_next_track(ctx, delay, query):
     await asyncio.sleep(delay)
     await skip(ctx) if (query == queue[0]) else None
 
@@ -32,7 +32,7 @@ async def play(ctx, query, next_track=False):
         source = discord.FFmpegOpusAudio(stream)
         ctx.voice_client.play(source, after=lambda e: print(f'ERROR: {e}') if e else None)
         await ctx.send(f'ИГРАЕТ {yt.title}')
-        await play_next_track(ctx, yt.length)
+        await play_next_track(ctx, yt.length, query)
         
 
 @bot.command()
