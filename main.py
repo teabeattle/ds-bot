@@ -7,7 +7,7 @@ from collections import deque
 
 queue = deque()
 
-MY_GUILD = discord.Object(id = 1002264111574421614)
+MY_GUILD = discord.Object(id = 0)
 class MyClient(discord.Client):
     def __init__(self, *, intents: discord.Intents):
         super().__init__(intents=intents)
