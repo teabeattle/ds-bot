@@ -1,6 +1,7 @@
 import asyncio
 import discord
 from discord.ext import commands
+from discord import app_commands
 from pytube import YouTube
 from collections import deque
 
@@ -24,7 +25,10 @@ class Music(commands.Cog):
         await asyncio.sleep(delay)
         await skip(self, ctx) if (query == queue[0]) else None
 
-    @commands.command()
+    @commands.tree.command()
+    @app_commands.describe(
+        query='Youtube link to a song'
+    )
     async def play(self, ctx, query, next_track=False):
         if not next_track:
             await ctx.send(f'ДОБАВЛЕНО В ОЧЕРЕДЬ {YouTube(query).title}') if queue else None
