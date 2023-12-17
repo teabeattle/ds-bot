@@ -18,7 +18,7 @@ async def on_ready():
 
 async def play_next_track(ctx, delay):
     await asyncio.sleep(delay)
-    await skip(ctx)
+    await skip(ctx) if (query == queue[0]) else None
 
 @bot.command()
 async def play(ctx, query, next_track=False):
