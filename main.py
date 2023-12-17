@@ -38,13 +38,11 @@ def play_song(voice_client, error = None, new = True):
 
 @client.tree.command(description = 'ПРОПУСКАЕТ ИГРАЮЩИЙ ТРЕК')
 async def skip(interaction: discord.Interaction):
-    try:
-        queue.popleft()
-    except:
+    if not queue:
         return await interaction.response.send_message(content = 'НЕЧЕГО СКИПАТЬ')
     interaction.guild.voice_client.stop()
     await interaction.response.send_message(content = 'СКИПНУТО')
-    play_song(interaction.guild.voice_client)
+    play_song(interaction.guild.voice_client, new = False)
     
             
 @client.tree.command(description = 'ИГРАЕТ МУЗЫКУ')
