@@ -7,6 +7,8 @@ from collections import deque
 
 queue = deque()
 
+
+
 MY_GUILD = discord.Object(id = 0)
 class MyClient(discord.Client):
     def __init__(self, *, intents: discord.Intents):
@@ -24,19 +26,48 @@ client = MyClient(intents=intents)
 async def on_ready():
     print(f'Logged in as {client.user} (ID: {client.user.id})\n------')
 
+def play_song(voice_client, error = None, new = True):
+    print(f'ERROR: {error}') if error else None
+    queue.popleft() if not new else None
+    if queue:
+        url = queue[0]
+        yt = YouTube(url)
+        stream = yt.streams.filter(only_audio=True, audio_codec='opus').order_by('abr').desc().first().download(filename='music.webm')
+        source = discord.FFmpegOpusAudio(stream)
+        voice_client.play(source, after=lambda e: play_song(voice_client, error = e, new = False))
+
+@client.tree.command(description = 'ПРОПУСКАЕТ ИГРАЮЩИЙ ТРЕК')
+async def skip(interaction: discord.Interaction):
+    try:
+        queue.popleft()
+    except:
+        return await interaction.response.send_message(content = 'НЕЧЕГО СКИПАТЬ')
+    interaction.guild.voice_client.stop()
+    await interaction.response.send_message(content = 'СКИПНУТО')
+    play_song(interaction.guild.voice_client)
+    
+            
 @client.tree.command(description = 'ИГРАЕТ МУЗЫКУ')
 async def play(interaction: discord.Interaction, link: str):
     if interaction.user.voice:
-        voice_client = await interaction.user.voice.channel.connect()
+        if interaction.guild.voice_client:
+            voice_client = interaction.guild.voice_client
+        else:
+            voice_client = await interaction.user.voice.channel.connect()
     else:
         return await interaction.response.send_message(content = 'ТЫ НЕ В ГОЛОСОВОМ КАНАЛЕ')
-
     yt = YouTube(link)
-    stream = yt.streams.filter(only_audio=True, audio_codec='opus').order_by('abr').desc().first().download(filename='music.webm')
-    source = discord.FFmpegOpusAudio(stream)
+    queue.append(link)
+    if len(queue) == 1:
+        await interaction.response.send_message(content = f'ИГРАЕТ {yt.title}')
+        play_song(voice_client)
+    else:
+        await interaction.response.send_message(content = f'ДОБАВЛЕНО В ОЧЕРЕДЬ {yt.title}')
+    
+    
 
-    voice_client.play(source, after=lambda e: print(f'ERROR: {e}') if e else None)
-
-    await interaction.response.send_message(content = f'ИГРАЕТ {yt.title}')
+@client.tree.command(description = 'ВЫВОДИТ ОЧЕРЕДЬ')
+async def q(interaction: discord.Interaction):
+    await interaction.response.send_message(content = f'ОЧЕРЕДЬ: {queue}')
 
 client.run('TOKEN')
