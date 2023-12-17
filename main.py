@@ -12,6 +12,8 @@ intents.message_content = True
 
 bot = commands.Bot(command_prefix='/', intents=intents)
 
+bot_comms = bot.create_group("help")
+
 @bot.event
 async def on_ready():
     print(f'Logged in as {bot.user} (ID: {bot.user.id})\n------')
@@ -20,7 +22,7 @@ async def play_next_track(ctx, delay, query):
     await asyncio.sleep(delay)
     await skip(ctx) if (query == queue[0]) else None
 
-@bot.command()
+@bot_comms.command(name="play")
 async def play(ctx, query, next_track=False):
     if not next_track:
         await ctx.send(f'ДОБАВЛЕНО В ОЧЕРЕДЬ {YouTube(query).title}') if queue else None
@@ -35,7 +37,7 @@ async def play(ctx, query, next_track=False):
         await play_next_track(ctx, yt.length, query)
         
 
-@bot.command()
+@bot_comms.command(name="skip")
 async def skip(ctx):
     if queue:
         queue.popleft()
@@ -44,7 +46,7 @@ async def skip(ctx):
         if queue:
             await play(ctx, queue[0], next_track=True)
 
-@bot.command()
+@bot_comms.command(name="show queue")
 async def q(ctx):
      await ctx.send(f'ОЧЕРЕДЬ {list(queue)}')
 
