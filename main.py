@@ -1,65 +1,42 @@
 import asyncio
 import discord
+from discord import app_commands
 from discord.ext import commands
 from pytube import YouTube
 from collections import deque
 
 queue = deque()
 
-intents = discord.Intents.default()
-intents.members = True
-intents.message_content = True
+MY_GUILD = discord.Object(id = 1002264111574421614)
+class MyClient(discord.Client):
+    def __init__(self, *, intents: discord.Intents):
+        super().__init__(intents=intents)
+        self.tree = app_commands.CommandTree(self)
 
-bot = commands.Bot(command_prefix='/', intents=intents)
+    async def setup_hook(self):
+        self.tree.copy_global_to(guild=MY_GUILD)
+        await self.tree.sync(guild=MY_GUILD)
 
-@bot.event
+intents = discord.Intents.all()
+client = MyClient(intents=intents)
+
+@client.event
 async def on_ready():
-    print(f'Logged in as {bot.user} (ID: {bot.user.id})\n------')
+    print(f'Logged in as {client.user} (ID: {client.user.id})\n------')
 
-async def play_next_track(ctx, delay, query):
-    await asyncio.sleep(delay)
-    await skip(ctx) if (query == queue[0]) else None
-
-@bot.command()
-async def play(ctx, query, next_track=False):
-    if not next_track:
-        await ctx.send(f'ДОБАВЛЕНО В ОЧЕРЕДЬ {YouTube(query).title}') if queue else None
-        queue.append(query)
-
-    if not ctx.voice_client.is_playing() and queue:
-        yt = YouTube(queue[0])
-        stream = yt.streams.filter(only_audio=True, audio_codec='opus').order_by('abr').desc().first().download(filename='music.webm')
-        source = discord.FFmpegOpusAudio(stream)
-        ctx.voice_client.play(source, after=lambda e: print(f'ERROR: {e}') if e else None)
-        await ctx.send(f'ИГРАЕТ {yt.title}')
-        await play_next_track(ctx, yt.length, query)
-        
-
-@bot.command()
-async def skip(ctx):
-    if queue:
-        queue.popleft()
-        if ctx.voice_client.is_playing():
-            ctx.voice_client.stop()
-        if queue:
-            await play(ctx, queue[0], next_track=True)
-
-@bot.command()
-async def q(ctx):
-     await ctx.send(f'ОЧЕРЕДЬ {list(queue)}')
-
-@play.before_invoke
-async def ensure_voice(ctx):
-    if ctx.voice_client is None:
-        if ctx.author.voice:
-            await ctx.author.voice.channel.connect()
-        else:
-            await ctx.send("ТЫ НЕ В ГОЛОСОВОМ КАНАЛЕ")
+@client.tree.command(description = 'ИГРАЕТ МУЗЫКУ')
+async def play(interaction: discord.Interaction, link: str):
+    if interaction.user.voice:
+        voice_client = await interaction.user.voice.channel.connect()
     else:
-        await ctx.voice_client.move_to(ctx.author.voice.channel)
+        return await interaction.response.send_message(content = 'ТЫ НЕ В ГОЛОСОВОМ КАНАЛЕ')
 
-async def main():
-    async with bot:
-        await bot.start('TOKEN')
+    yt = YouTube(link)
+    stream = yt.streams.filter(only_audio=True, audio_codec='opus').order_by('abr').desc().first().download(filename='music.webm')
+    source = discord.FFmpegOpusAudio(stream)
 
-asyncio.run(main())
+    voice_client.play(source, after=lambda e: print(f'ERROR: {e}') if e else None)
+
+    await interaction.response.send_message(content = f'ИГРАЕТ {yt.title}')
+
+client.run('TOKEN')
