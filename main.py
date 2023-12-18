@@ -1,65 +1,82 @@
 import asyncio
 import discord
+from discord import app_commands
 from discord.ext import commands
 from pytube import YouTube
 from collections import deque
 
-queue = deque()
+guilds = {}
 
-intents = discord.Intents.default()
-intents.members = True
-intents.message_content = True
+class DServer():
+    def __init__(self, guild):
+        self.guild = guild
+        self.queue = deque()
+    def popleft(self):
+        return self.queue.popleft()
+    def append(self, item):
+        return self.queue.append(item)
 
-bot = commands.Bot(command_prefix='/', intents=intents)
+intents = discord.Intents.all()
+client = discord.Client(intents=intents)
+tree = app_commands.CommandTree(client)
 
-@bot.event
+
+@client.event
 async def on_ready():
-    print(f'Logged in as {bot.user} (ID: {bot.user.id})\n------')
+    print(f'Logged in as {client.user} (ID: {client.user.id})\n------')
+    for guild in client.guilds:
+        tree.copy_global_to(guild = guild)
+        await tree.sync(guild = guild)
+        
+@client.event
+async def on_guild_join(guild):
+    tree.copy_global_to(guild = guild)
+    await tree.sync(guild = guild)
 
-async def play_next_track(ctx, delay, query):
-    await asyncio.sleep(delay)
-    await skip(ctx) if (query == queue[0]) else None
 
-@bot.command()
-async def play(ctx, query, next_track=False):
-    if not next_track:
-        await ctx.send(f'ДОБАВЛЕНО В ОЧЕРЕДЬ {YouTube(query).title}') if queue else None
-        queue.append(query)
 
-    if not ctx.voice_client.is_playing() and queue:
-        yt = YouTube(queue[0])
-        stream = yt.streams.filter(only_audio=True, audio_codec='opus').order_by('abr').desc().first().download(filename='music.webm')
+def play_song(guild, error = None, new = True):
+    print(f'ERROR: {error}') if error else None
+    guilds[guild.id].popleft() if not new else None
+    
+    if guilds[guild.id].queue:
+        url = guilds[guild.id].queue[0]
+        yt = YouTube(url)
+        stream = yt.streams.filter(only_audio=True, audio_codec='opus').order_by('abr').desc().first().download(filename=f'{guild.id}.webm')
         source = discord.FFmpegOpusAudio(stream)
-        ctx.voice_client.play(source, after=lambda e: print(f'ERROR: {e}') if e else None)
-        await ctx.send(f'ИГРАЕТ {yt.title}')
-        await play_next_track(ctx, yt.length, query)
+        guild.voice_client.play(source, after=lambda e: play_song(guild, error = e, new = False))
         
 
-@bot.command()
-async def skip(ctx):
-    if queue:
-        queue.popleft()
-        if ctx.voice_client.is_playing():
-            ctx.voice_client.stop()
-        if queue:
-            await play(ctx, queue[0], next_track=True)
-
-@bot.command()
-async def q(ctx):
-     await ctx.send(f'ОЧЕРЕДЬ {list(queue)}')
-
-@play.before_invoke
-async def ensure_voice(ctx):
-    if ctx.voice_client is None:
-        if ctx.author.voice:
-            await ctx.author.voice.channel.connect()
-        else:
-            await ctx.send("ТЫ НЕ В ГОЛОСОВОМ КАНАЛЕ")
+@tree.command(description = 'ПРОПУСКАЕТ ИГРАЮЩИЙ ТРЕК')
+async def skip(interaction: discord.Interaction):
+    if ((interaction.guild.id not in guilds) or (not guilds[interaction.guild.id].queue)):
+        return await interaction.response.send_message(content = 'НЕЧЕГО СКИПАТЬ')
+    interaction.guild.voice_client.stop()
+    await interaction.response.send_message(content = 'СКИПНУТО')
+    play_song(interaction.guild)
+    
+            
+@tree.command(description = 'ИГРАЕТ МУЗЫКУ')
+async def play(interaction: discord.Interaction, link: str):
+    if interaction.user.voice:
+        if not interaction.guild.voice_client:
+            await interaction.user.voice.channel.connect()
     else:
-        await ctx.voice_client.move_to(ctx.author.voice.channel)
+        return await interaction.response.send_message(content = 'ТЫ НЕ В ГОЛОСОВОМ КАНАЛЕ')
+    guilds[interaction.guild.id] = DServer(interaction.guild) if interaction.guild.id not in guilds else guilds[interaction.guild.id]
+    yt = YouTube(link)
+    guilds[interaction.guild.id].append(link)
+        
+    if len(guilds[interaction.guild.id].queue) == 1:
+        await interaction.response.send_message(content = f'ИГРАЕТ {yt.title}')
+        play_song(interaction.guild)
+    else:
+        await interaction.response.send_message(content = f'ДОБАВЛЕНО В ОЧЕРЕДЬ {yt.title}')
+    
+    
 
-async def main():
-    async with bot:
-        await bot.start('TOKEN')
+@tree.command(description = 'ВЫВОДИТ ОЧЕРЕДЬ')
+async def q(interaction: discord.Interaction):
+    await interaction.response.send_message(content = f'ОЧЕРЕДЬ: {guilds[interaction.guild.id].queue}')
 
-asyncio.run(main())
+client.run('TOKEN')
