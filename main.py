@@ -57,14 +57,18 @@ async def play(interaction: discord.Interaction, link: str):
         await player.play(player.queue.get())
 
 @tree.command(description = 'ВЫВОДИТ ОЧЕРЕДЬ')
-async def q(interaction: discord.Interaction):
+async def q(interaction: discord.Interaction, clear : bool = False):
     player = interaction.guild.voice_client
     if not player:
-        return await interaction.response.send_message(content='Я ДАЖЕ НЕ В В ГОЛОСОВОМ КАНАЛЕ')
+        return await interaction.response.send_message(content='Я ДАЖЕ НЕ В ГОЛОСОВОМ КАНАЛЕ')
     if not player.playing:
         return await interaction.response.send_message(content='ПУСТО')
+    if clear:
+        player.queue.clear()
+        return await interaction.response.send_message(content='ОЧЕРЕДЬ ПОЛНОСТЬЮ ОЧИЩЕНА')
     if player.queue:
-        return await interaction.response.send_message(f"СЕЙЧАС ИГРАЕТ: '{str(player.current)}' ДО КОНЦА ОСТАЛОСЬ '{int((player.current.length-player.position)/1000//60)}:{str(int((player.current.length-player.position)/1000%60)).zfill(2)}' \n'{str(interaction.guild.voice_client.queue)}'")
-    return await interaction.response.send_message(f"СЕЙЧАС ИГРАЕТ: '{str(player.current)}' ДО КОНЦА ОСТАЛОСЬ '{int((player.current.length-player.position)/1000//60)}:{str(int((player.current.length-player.position)/1000%60)).zfill(2)}'")
+        return await interaction.response.send_message(content=f"СЕЙЧАС ИГРАЕТ: '{str(player.current)}' ДО КОНЦА ОСТАЛОСЬ '{int((player.current.length-player.position)/1000//60)}:{str(int((player.current.length-player.position)/1000%60)).zfill(2)}' \n'{str(interaction.guild.voice_client.queue)}'")
+    return await interaction.response.send_message(content=f"СЕЙЧАС ИГРАЕТ: '{str(player.current)}' ДО КОНЦА ОСТАЛОСЬ '{int((player.current.length-player.position)/1000//60)}:{str(int((player.current.length-player.position)/1000%60)).zfill(2)}'")
+
 
 client.run('TOKEN')
