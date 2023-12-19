@@ -25,7 +25,7 @@ async def on_guild_join(guild):
 @tree.command(description = 'ПРОПУСКАЕТ ИГРАЮЩИЙ ТРЕК')
 async def skip(interaction: discord.Interaction):
     if not interaction.guild.voice_client:
-        return await interaction.response.send_message(content='Я ДАЖЕ НЕ В В ГОЛОСОВОМ КАНАЛЕ')
+        return await interaction.response.send_message(content='Я ДАЖЕ НЕ В ГОЛОСОВОМ КАНАЛЕ')
     return await interaction.response.send_message(content=f'СКИПНУТО {await interaction.guild.voice_client.skip()}')
     
             
