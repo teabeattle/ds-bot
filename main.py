@@ -1,28 +1,17 @@
-import asyncio
 import discord
 from discord import app_commands
-from discord.ext import commands
-from pytube import YouTube
-from collections import deque
-
-guilds = {}
-
-class DServer():
-    def __init__(self, guild):
-        self.guild = guild
-        self.queue = deque()
-    def popleft(self):
-        return self.queue.popleft()
-    def append(self, item):
-        return self.queue.append(item)
+import wavelink
 
 intents = discord.Intents.all()
 client = discord.Client(intents=intents)
 tree = app_commands.CommandTree(client)
 
-
 @client.event
 async def on_ready():
+    node = [wavelink.Node(uri = 'http://localhost:2333',
+                     password = "youshallnotpass",
+                     )]
+    await wavelink.Pool.connect(nodes = node, client=client)
     print(f'Logged in as {client.user} (ID: {client.user.id})\n------')
     for guild in client.guilds:
         tree.copy_global_to(guild = guild)
@@ -33,50 +22,49 @@ async def on_guild_join(guild):
     tree.copy_global_to(guild = guild)
     await tree.sync(guild = guild)
 
-
-
-def play_song(guild, error = None, new = True):
-    print(f'ERROR: {error}') if error else None
-    guilds[guild.id].popleft() if not new else None
-    
-    if guilds[guild.id].queue:
-        url = guilds[guild.id].queue[0]
-        yt = YouTube(url)
-        stream = yt.streams.filter(only_audio=True, audio_codec='opus').order_by('abr').desc().first().download(filename=f'{guild.id}.webm')
-        source = discord.FFmpegOpusAudio(stream)
-        guild.voice_client.play(source, after=lambda e: play_song(guild, error = e, new = False))
-        
-
 @tree.command(description = 'ПРОПУСКАЕТ ИГРАЮЩИЙ ТРЕК')
 async def skip(interaction: discord.Interaction):
-    if ((interaction.guild.id not in guilds) or (not guilds[interaction.guild.id].queue)):
-        return await interaction.response.send_message(content = 'НЕЧЕГО СКИПАТЬ')
-    interaction.guild.voice_client.stop()
-    await interaction.response.send_message(content = 'СКИПНУТО')
-    play_song(interaction.guild)
+    if not interaction.guild.voice_client:
+        return await interaction.response.send_message(content='Я ДАЖЕ НЕ В ГОЛОСОВОМ КАНАЛЕ')
+    return await interaction.response.send_message(content=f'СКИПНУТО {await interaction.guild.voice_client.skip()}')
     
             
 @tree.command(description = 'ИГРАЕТ МУЗЫКУ')
 async def play(interaction: discord.Interaction, link: str):
     if interaction.user.voice:
         if not interaction.guild.voice_client:
-            await interaction.user.voice.channel.connect()
+            player = await interaction.user.voice.channel.connect(cls=wavelink.Player)
+        else:
+            player = interaction.guild.voice_client
+            player.autoplay = wavelink.AutoPlayMode.partial
+            player.QueueMode = wavelink.QueueMode.normal
     else:
         return await interaction.response.send_message(content = 'ТЫ НЕ В ГОЛОСОВОМ КАНАЛЕ')
-    guilds[interaction.guild.id] = DServer(interaction.guild) if interaction.guild.id not in guilds else guilds[interaction.guild.id]
-    yt = YouTube(link)
-    guilds[interaction.guild.id].append(link)
-        
-    if len(guilds[interaction.guild.id].queue) == 1:
-        await interaction.response.send_message(content = f'ИГРАЕТ {yt.title}')
-        play_song(interaction.guild)
+
+    tracks: wavelink.Search = await wavelink.Playable.search(link)
+    if not tracks:
+        return await interaction.response.send_message(content = 'НИЧЕГО НЕ НАЙДЕНО')
+    
+    if isinstance(tracks, wavelink.Playlist):
+        added : int = await player.queue.put_wait(tracks)
+        await interaction.response.send_message(content = f'В ОЧЕРЕДЬ ДОБАВЛЕН ПЛЕЙЛИСТ {tracks.name} СОСТОЯЩИЙ ИЗ {added} ТРЕКОВ')
     else:
-        await interaction.response.send_message(content = f'ДОБАВЛЕНО В ОЧЕРЕДЬ {yt.title}')
-    
-    
+        track : wavelink.Playable = tracks[0]
+        await player.queue.put_wait(track)
+        await interaction.response.send_message(content = f"ДОБАВЛЕНО В ОЧЕРЕДЬ '{track}' ДЛИТЕЛЬНОСТЬЮ '{int(track.length/1000//60)}:{str(int(track.length/1000%60)).zfill(2)}'")
+
+    if not player.playing:
+        await player.play(player.queue.get())
 
 @tree.command(description = 'ВЫВОДИТ ОЧЕРЕДЬ')
 async def q(interaction: discord.Interaction):
-    await interaction.response.send_message(content = f'ОЧЕРЕДЬ: {guilds[interaction.guild.id].queue}')
+    player = interaction.guild.voice_client
+    if not player:
+        return await interaction.response.send_message(content='Я ДАЖЕ НЕ В В ГОЛОСОВОМ КАНАЛЕ')
+    if not player.playing:
+        return await interaction.response.send_message(content='ПУСТО')
+    if player.queue:
+        return await interaction.response.send_message(f"СЕЙЧАС ИГРАЕТ: '{str(player.current)}' ДО КОНЦА ОСТАЛОСЬ '{int((player.current.length-player.position)/1000//60)}:{str(int((player.current.length-player.position)/1000%60)).zfill(2)}' \n'{str(interaction.guild.voice_client.queue)}'")
+    return await interaction.response.send_message(f"СЕЙЧАС ИГРАЕТ: '{str(player.current)}' ДО КОНЦА ОСТАЛОСЬ '{int((player.current.length-player.position)/1000//60)}:{str(int((player.current.length-player.position)/1000%60)).zfill(2)}'")
 
 client.run('TOKEN')
