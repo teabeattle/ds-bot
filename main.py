@@ -1,66 +1,70 @@
-import asyncio
 import discord
-from discord.ext import commands
-from pytube import YouTube
-from collections import deque
-import io
+from discord import app_commands
+import wavelink
 
-queue = deque()
+intents = discord.Intents.all()
+client = discord.Client(intents=intents)
+tree = app_commands.CommandTree(client)
 
-intents = discord.Intents.default()
-intents.members = True
-intents.message_content = True
-
-bot = commands.Bot(command_prefix='/', intents=intents)
-
-@bot.event
+@client.event
 async def on_ready():
-   print(f'Logged in as {bot.user} (ID: {bot.user.id})\n------')
+    node = [wavelink.Node(uri = 'http://localhost:2333',
+                     password = "youshallnotpass",
+                     )]
+    await wavelink.Pool.connect(nodes = node, client=client)
+    print(f'Logged in as {client.user} (ID: {client.user.id})\n------')
+    for guild in client.guilds:
+        tree.copy_global_to(guild = guild)
+        await tree.sync(guild = guild)
+        
+@client.event
+async def on_guild_join(guild):
+    tree.copy_global_to(guild = guild)
+    await tree.sync(guild = guild)
 
-async def play_next_track(ctx, delay):
-   await asyncio.sleep(delay)
-   await skip(ctx)
+@tree.command(description = 'ПРОПУСКАЕТ ИГРАЮЩИЙ ТРЕК')
+async def skip(interaction: discord.Interaction):
+    if not interaction.guild.voice_client:
+        return await interaction.response.send_message(content='Я ДАЖЕ НЕ В В ГОЛОСОВОМ КАНАЛЕ')
+    return await interaction.response.send_message(content=f'СКИПНУТО {await interaction.guild.voice_client.skip()}')
+    
+            
+@tree.command(description = 'ИГРАЕТ МУЗЫКУ')
+async def play(interaction: discord.Interaction, link: str):
+    if interaction.user.voice:
+        if not interaction.guild.voice_client:
+            player = await interaction.user.voice.channel.connect(cls=wavelink.Player)
+        else:
+            player = interaction.guild.voice_client
+            player.autoplay = wavelink.AutoPlayMode.partial
+            player.QueueMode = wavelink.QueueMode.normal
+    else:
+        return await interaction.response.send_message(content = 'ТЫ НЕ В ГОЛОСОВОМ КАНАЛЕ')
 
-@bot.command()
-async def play(ctx, query, next_track=False):
-   if not next_track:
-       queue.append(query)
+    tracks: wavelink.Search = await wavelink.Playable.search(link)
+    if not tracks:
+        return await interaction.response.send_message(content = 'НИЧЕГО НЕ НАЙДЕНО')
+    
+    if isinstance(tracks, wavelink.Playlist):
+        added : int = await player.queue.put_wait(tracks)
+        await interaction.response.send_message(content = f'В ОЧЕРЕДЬ ДОБАВЛЕН ПЛЕЙЛИСТ {tracks.name} СОСТОЯЩИЙ ИЗ {added} ТРЕКОВ')
+    else:
+        track : wavelink.Playable = tracks[0]
+        await player.queue.put_wait(track)
+        await interaction.response.send_message(content = f"ДОБАВЛЕНО В ОЧЕРЕДЬ '{track}' ДЛИТЕЛЬНОСТЬЮ '{int(track.length/1000//60)}:{str(int(track.length/1000%60)).zfill(2)}'")
 
-   if not ctx.voice_client.is_playing() and queue:
-       yt = YouTube(queue[0])
-       stream = yt.streams.filter(only_audio=True, audio_codec='opus').order_by('abr').desc().first()
-       buffer = io.BytesIO()
-       stream.stream_to_buffer(buffer)
-       source = discord.FFmpegOpusAudio(buffer)
-       ctx.voice_client.play(source, after=lambda e: print(f'ERROR: {e}') if e else None)
-       await ctx.send(f'ИГРАЕТ {yt.title}')
-       await play_next_track(ctx, yt.length)
+    if not player.playing:
+        await player.play(player.queue.get())
 
-@bot.command()
-async def skip(ctx):
-   if queue:
-       queue.popleft()
-       if ctx.voice_client.is_playing():
-           ctx.voice_client.stop()
-       if queue:
-           await play(ctx, queue[0], next_track=True)
+@tree.command(description = 'ВЫВОДИТ ОЧЕРЕДЬ')
+async def q(interaction: discord.Interaction):
+    player = interaction.guild.voice_client
+    if not player:
+        return await interaction.response.send_message(content='Я ДАЖЕ НЕ В В ГОЛОСОВОМ КАНАЛЕ')
+    if not player.playing:
+        return await interaction.response.send_message(content='ПУСТО')
+    if player.queue:
+        return await interaction.response.send_message(f"СЕЙЧАС ИГРАЕТ: '{str(player.current)}' ДО КОНЦА ОСТАЛОСЬ '{int((player.current.length-player.position)/1000//60)}:{str(int((player.current.length-player.position)/1000%60)).zfill(2)}' \n'{str(interaction.guild.voice_client.queue)}'")
+    return await interaction.response.send_message(f"СЕЙЧАС ИГРАЕТ: '{str(player.current)}' ДО КОНЦА ОСТАЛОСЬ '{int((player.current.length-player.position)/1000//60)}:{str(int((player.current.length-player.position)/1000%60)).zfill(2)}'")
 
-@bot.command()
-async def q(ctx):
-    await ctx.send(f'ОЧЕРЕДЬ {list(queue)}')
-
-@play.before_invoke
-async def ensure_voice(ctx):
-   if ctx.voice_client is None:
-       if ctx.author.voice:
-           await ctx.author.voice.channel.connect()
-       else:
-           await ctx.send("ТЫ НЕ В ГОЛОСОВОМ КАНАЛЕ")
-   else:
-       await ctx.voice_client.move_to(ctx.author.voice.channel)
-
-async def main():
-   async with bot:
-       await bot.start('TOKEN')
-
-asyncio.run(main())
+client.run('TOKEN')
