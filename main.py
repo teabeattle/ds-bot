@@ -1,7 +1,6 @@
 import discord
 from discord import app_commands
 import wavelink
-import os
 
 intents = discord.Intents.all()
 client = discord.Client(intents=intents)
@@ -68,4 +67,4 @@ async def q(interaction: discord.Interaction):
         return await interaction.response.send_message(f"СЕЙЧАС ИГРАЕТ: '{str(player.current)}' ДО КОНЦА ОСТАЛОСЬ '{int((player.current.length-player.position)/1000//60)}:{str(int((player.current.length-player.position)/1000%60)).zfill(2)}' \n'{str(interaction.guild.voice_client.queue)}'")
     return await interaction.response.send_message(f"СЕЙЧАС ИГРАЕТ: '{str(player.current)}' ДО КОНЦА ОСТАЛОСЬ '{int((player.current.length-player.position)/1000//60)}:{str(int((player.current.length-player.position)/1000%60)).zfill(2)}'")
 
-client.run(os.environ.get('TOKEN'))
+client.run('TOKEN')
