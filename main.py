@@ -1,7 +1,6 @@
 import asyncio
 import discord
 from discord import app_commands
-from discord.ext import commands
 from pytube import YouTube
 from collections import deque
 
@@ -19,7 +18,6 @@ class DServer():
 intents = discord.Intents.all()
 client = discord.Client(intents=intents)
 tree = app_commands.CommandTree(client)
-
 
 @client.event
 async def on_ready():
