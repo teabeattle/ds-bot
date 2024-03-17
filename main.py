@@ -34,11 +34,12 @@ class DServer():
         self.current_track: asyncio.Task = None
 
     async def play_queue(self):
-        self.current_track = asyncio.create_task(self.queue.get_nowait())
-        while not self.current_track.done():
-            await asyncio.sleep(1)
-        if self.queue.qsize():
-            await self.play_queue()
+        while True:
+            self.current_track = asyncio.create_task(self.queue.get_nowait())
+            while not self.current_track.done():
+                await asyncio.sleep(1)
+            if not self.queue.qsize():
+                break
 
 
     async def play_song(self, song: YouTube):
