@@ -1,6 +1,9 @@
 import asyncio
 from asyncio import Queue
 
+import functools
+import typing
+
 import discord
 from discord import app_commands
 
@@ -8,6 +11,11 @@ from pytube import YouTube
 
 import logging
 
+def to_thread(func: typing.Callable):
+    @functools.wraps(func)
+    async def wrapper(*args, **kwargs):
+        return await asyncio.to_thread(func, *args, **kwargs)
+    return wrapper
 
 intents = discord.Intents.all()
 client = discord.Client(intents=intents)
@@ -41,13 +49,16 @@ class DServer():
             if not self.queue.qsize():
                 break
 
+    @to_thread
+    def download_song(self, song: YouTube):
+        return song.streams.filter(only_audio=True, audio_codec='opus').order_by('abr').desc().first().download(filename=f'{self.guild.id}.webm')
 
     async def play_song(self, song: YouTube):
         try:
-            stream = song.streams.filter(only_audio=True, audio_codec='opus').order_by('abr').desc().first().download(filename=f'{self.guild.id}.webm')
+            stream = await self.download_song(song)
             source = discord.FFmpegPCMAudio(stream)
             self.guild.voice_client.play(source)
-            await asyncio.sleep(song.length)
+            asyncio.sleep(song.length)
         except asyncio.CancelledError:
             pass
         finally:
