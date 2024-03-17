@@ -1,19 +1,13 @@
 import asyncio
+from asyncio import Queue
+
 import discord
 from discord import app_commands
+
 from pytube import YouTube
-from collections import deque
 
-guilds = {}
+import logging
 
-class DServer():
-    def __init__(self, guild):
-        self.guild = guild
-        self.queue = deque()
-    def popleft(self):
-        return self.queue.popleft()
-    def append(self, item):
-        return self.queue.append(item)
 
 intents = discord.Intents.all()
 client = discord.Client(intents=intents)
@@ -25,56 +19,106 @@ async def on_ready():
     for guild in client.guilds:
         tree.copy_global_to(guild = guild)
         await tree.sync(guild = guild)
-        
+
 @client.event
-async def on_guild_join(guild):
+async def on_guild_join(guild: discord.Guild):
     tree.copy_global_to(guild = guild)
     await tree.sync(guild = guild)
 
 
+class DServer():
+    def __init__(self, guild: discord.Guild):
+        self.guild = guild
+        self.queue = Queue()
+        self.tracks = []
+        self.current_track: asyncio.Task = None
 
-def play_song(guild, error = None, new = True):
-    print(f'ERROR: {error}') if error else None
-    guilds[guild.id].popleft() if not new else None
-    
-    if guilds[guild.id].queue:
-        url = guilds[guild.id].queue[0]
-        yt = YouTube(url)
-        stream = yt.streams.filter(only_audio=True, audio_codec='opus').order_by('abr').desc().first().download(filename=f'{guild.id}.webm')
-        source = discord.FFmpegOpusAudio(stream)
-        guild.voice_client.play(source, after=lambda e: play_song(guild, error = e, new = False))
-        
+    async def play_queue(self):
+        self.current_track = asyncio.create_task(self.queue.get_nowait())
+        while not self.current_track.done():
+            await asyncio.sleep(1)
+        if self.queue.qsize():
+            await self.play_queue()
 
-@tree.command(description = 'ПРОПУСКАЕТ ИГРАЮЩИЙ ТРЕК')
-async def skip(interaction: discord.Interaction):
-    if ((interaction.guild.id not in guilds) or (not guilds[interaction.guild.id].queue)):
-        return await interaction.response.send_message(content = 'НЕЧЕГО СКИПАТЬ')
-    interaction.guild.voice_client.stop()
-    await interaction.response.send_message(content = 'СКИПНУТО')
-    play_song(interaction.guild)
+
+    async def play_song(self, song: YouTube):
+        try:
+            stream = song.streams.filter(only_audio=True, audio_codec='opus').order_by('abr').desc().first().download(filename=f'{self.guild.id}.webm')
+            source = discord.FFmpegPCMAudio(stream)
+            self.guild.voice_client.play(source)
+            await asyncio.sleep(song.length)
+        except asyncio.CancelledError:
+            pass
+        finally:
+            self.tracks.pop(0)
+
     
-            
-@tree.command(description = 'ИГРАЕТ МУЗЫКУ')
+    async def queue_append(self, item: YouTube):
+        await self.queue.put(self.play_song(item))
+    
+    def track_append(self, item: str):
+        self.tracks.append(item)
+
+    async def skip(self):
+        self.current_track.cancel()
+
+        if self.queue.qsize():
+            await self.play_queue()
+
+guilds: dict[discord.Guild.id, DServer] = {}
+
+@tree.command(description="ИГРАЕТ МУЗЫКУ")
 async def play(interaction: discord.Interaction, link: str):
-    if interaction.user.voice:
-        if not interaction.guild.voice_client:
-            await interaction.user.voice.channel.connect()
+    if not interaction.user.voice:
+        return await interaction.response.send_message(content="Ты даже не в голосовом канале!")
+    
+    try:
+        yt = YouTube(link)
+    except:
+        return await interaction.response.send_message(content="Принимаю только ссылки на YOUTUBE (не уверен, что все)")
+    
+    if (not interaction.guild.voice_client) or (interaction.guild.voice_client.channel != interaction.user.voice.channel):
+        await interaction.user.voice.channel.connect()
+
+    if interaction.guild_id not in guilds:
+        guilds[interaction.guild_id] = DServer(interaction.guild)
+    
+    dserver = guilds[interaction.guild_id]
+
+    await dserver.queue_append(yt)
+    dserver.track_append(yt.title)
+
+    if len(dserver.tracks) == 1:
+        await interaction.response.send_message(content=f"Сейчас играет {yt.title}")
+        await dserver.play_queue()
     else:
-        return await interaction.response.send_message(content = 'ТЫ НЕ В ГОЛОСОВОМ КАНАЛЕ')
-    guilds[interaction.guild.id] = DServer(interaction.guild) if interaction.guild.id not in guilds else guilds[interaction.guild.id]
-    yt = YouTube(link)
-    guilds[interaction.guild.id].append(link)
+        await interaction.response.send_message(content=f"Добавлено в очередь {yt.title}")
+
+@tree.command(description="ПРОПУСКАЕТ ТРЕК")
+async def skip(interaction: discord.Interaction):
+    if interaction.guild_id not in guilds or len(guilds[interaction.guild_id].tracks) == 0:
+        await interaction.response.send_message(content="Нечего скипать")
+    else:
+        interaction.guild.voice_client.stop()
+        await interaction.response.send_message(content="Скипнуто")
+        await guilds[interaction.guild_id].skip()
         
-    if len(guilds[interaction.guild.id].queue) == 1:
-        await interaction.response.send_message(content = f'ИГРАЕТ {yt.title}')
-        play_song(interaction.guild)
-    else:
-        await interaction.response.send_message(content = f'ДОБАВЛЕНО В ОЧЕРЕДЬ {yt.title}')
-    
-    
 
-@tree.command(description = 'ВЫВОДИТ ОЧЕРЕДЬ')
+@tree.command(description="Выводит очередь")
 async def q(interaction: discord.Interaction):
-    await interaction.response.send_message(content = f'ОЧЕРЕДЬ: {guilds[interaction.guild.id].queue}')
+    if interaction.guild_id not in guilds:
+        await interaction.response.send_message(content="Я ни разу в жизни не играл треки")
+    elif not guilds[interaction.guild_id].tracks:
+        await interaction.response.send_message(content="Пусто")
+    else:
+        tracks = guilds[interaction.guild_id].tracks
+        message = f"Сейчас играет: {tracks[0]}"
+        if tracks[1:]:
+            for track in tracks[1:]:
+                message += f"\nЗатем будет играть -> {track}"
+        else:
+            message += "\nНу и все вообщемото"
+        await interaction.response.send_message(content=message)
 
-client.run('TOKEN')
+
+client.run(token="TOKEN", log_handler=logging.FileHandler(filename="logs", encoding="utf-8", mode="w"))
